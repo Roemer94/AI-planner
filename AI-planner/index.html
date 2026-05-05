@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PlannAI</title>
+    <title>Forge</title>
+    <meta name="description" content="Your personal AI system for maximum control over your life." />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -15,9 +16,9 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <!-- Firebase Scripts (must load before app.js) -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-firestore-compat.js"></script>
 
     <!-- Firebase Config -->
     <script>
@@ -31,6 +32,9 @@
         measurementId: "G-RY3QZGWGGE"
       };
     </script>
+
+    <!-- FullCalendar (all plugins in one global bundle) -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 
     <!-- App Script -->
     <script type="text/babel" src="app.js"></script>

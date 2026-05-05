@@ -49,14 +49,176 @@ async function loadTasks(userId) {
   return [];
 }
 
+async function saveAppointments(userId, appointments) {
+  try {
+    await db.collection('appointments').doc(userId).set(
+      { appointments, lastUpdated: new Date() },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error('Error saving appointments:', error);
+  }
+}
+
+async function loadAppointments(userId) {
+  try {
+    const doc = await db.collection('appointments').doc(userId).get();
+    if (doc.exists && doc.data().appointments) return doc.data().appointments;
+  } catch (error) {
+    console.error('Error loading appointments:', error);
+  }
+  return [];
+}
+
 const DEFAULT_PREFS = { workStart: '09:00', workEnd: '18:00', breakDuration: 15, focusBlocks: true, workStyle: 'balanced', bufferTime: 10, energyPeak: 'morning', timezone: 'Europe/Amsterdam' };
 
 const INIT_TASKS = [
-  { id: 1, name: 'Write project proposal', deadline: '2025-05-05', duration: 90, priority: 'high', done: false, source: 'manual' },
-  { id: 2, name: 'Review team pull requests', deadline: '2025-05-03', duration: 45, priority: 'med', done: false, source: 'manual' },
-  { id: 3, name: 'Prepare slides for presentation', deadline: '2025-05-06', duration: 120, priority: 'high', done: false, source: 'manual' },
-  { id: 4, name: 'Reply to client emails', deadline: '2025-05-02', duration: 30, priority: 'med', done: false, source: 'manual' },
+  { id: 1, name: 'Write project proposal', deadline: '2026-05-08', duration: 90, priority: 'high', done: false, source: 'manual' },
+  { id: 2, name: 'Review team pull requests', deadline: '2026-05-06', duration: 45, priority: 'med', done: false, source: 'manual' },
+  { id: 3, name: 'Prepare slides for presentation', deadline: '2026-05-14', duration: 120, priority: 'high', done: false, source: 'manual' },
+  { id: 4, name: 'Reply to client emails', deadline: '2026-05-05', duration: 30, priority: 'med', done: false, source: 'manual' },
 ];
+
+function AppointmentModal({ initial, onSave, onDelete, onClose }) {
+  const isEdit = Boolean(initial && initial.id);
+  const [form, setForm] = useState({
+    title: '', date: '', startTime: '09:00', endTime: '10:00', location: '', notes: '', priority: 'med',
+    ...(initial || {}),
+  });
+  const [error, setError] = useState('');
+  const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
+
+  const handleSave = () => {
+    if (!form.title.trim()) { setError('Title is required.'); return; }
+    if (!form.date) { setError('Date is required.'); return; }
+    setError('');
+    onSave(form);
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <span className="modal-title">{isEdit ? 'Edit Appointment' : 'New Appointment'}</span>
+          <button className="modal-close-btn" type="button" onClick={onClose}>×</button>
+        </div>
+        {error && <div className="modal-error">{error}</div>}
+        <div className="form-group">
+          <label className="form-label">Title</label>
+          <input className="form-input" value={form.title} placeholder="Appointment title" autoFocus onChange={e => set('title', e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSave()} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Date</label>
+          <input type="date" className="form-input" value={form.date} onChange={e => set('date', e.target.value)} />
+        </div>
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Start</label>
+            <input type="time" className="form-input" value={form.startTime} onChange={e => set('startTime', e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">End</label>
+            <input type="time" className="form-input" value={form.endTime} onChange={e => set('endTime', e.target.value)} />
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Priority</label>
+          <div className="priority-grid">
+            {['low', 'med', 'high'].map(p => (
+              <button key={p} type="button" className={`priority-btn ${p} ${form.priority === p ? 'active' : ''}`} onClick={() => set('priority', p)}>
+                {p === 'low' ? 'Low' : p === 'med' ? 'Med' : 'High'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Location</label>
+          <input className="form-input" value={form.location} placeholder="Add location" onChange={e => set('location', e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label className="form-label">Notes</label>
+          <textarea className="form-input" value={form.notes} placeholder="Add notes" rows={3} onChange={e => set('notes', e.target.value)} style={{ resize: 'vertical' }} />
+        </div>
+        <div className="modal-footer">
+          {isEdit && <button className="modal-delete-btn" type="button" onClick={() => { onDelete(initial.id); onClose(); }}>Delete</button>}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+            <button className="modal-cancel-btn" type="button" onClick={onClose}>Cancel</button>
+            <button className="modal-save-btn" type="button" onClick={handleSave}>Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CalendarView({ tasks, appointments, onDateClick, onApptClick }) {
+  const calRef = React.useRef(null);
+  const calInstance = React.useRef(null);
+  const onDateClickRef = React.useRef(onDateClick);
+  const onApptClickRef = React.useRef(onApptClick);
+  const eventsRef = React.useRef([]);
+
+  useEffect(() => { onDateClickRef.current = onDateClick; }, [onDateClick]);
+  useEffect(() => { onApptClickRef.current = onApptClick; }, [onApptClick]);
+
+  function buildEvents(t, a) {
+    const taskEvents = (t || []).filter(x => x.deadline).map(x => ({
+      id: 'task-' + x.id,
+      title: x.name,
+      start: x.deadline,
+      allDay: true,
+      color: x.priority === 'high' ? '#c0412a' : x.priority === 'med' ? '#b07a20' : '#3a6a3a',
+      textColor: '#f0ede8',
+      classNames: x.done ? ['fc-event-done'] : [],
+      extendedProps: { type: 'task' },
+    }));
+    const apptEvents = (a || []).map(x => ({
+      id: 'appt-' + x.id,
+      title: x.title,
+      start: x.date + 'T' + x.startTime,
+      end: x.date + 'T' + x.endTime,
+      color: x.priority === 'high' ? '#c0412a' : x.priority === 'low' ? '#3a6a3a' : '#e8621a',
+      textColor: x.priority === 'med' ? '#0f0e0d' : '#f0ede8',
+      extendedProps: { type: 'appointment', apptId: x.id },
+    }));
+    return [...taskEvents, ...apptEvents];
+  }
+
+  useEffect(() => {
+    if (!calRef.current) return;
+    eventsRef.current = buildEvents(tasks, appointments);
+    const cal = new FullCalendar.Calendar(calRef.current, {
+      initialView: 'dayGridMonth',
+      headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listWeek' },
+      buttonText: { today: 'Today', month: 'Month', week: 'Week', list: 'List' },
+      events: (info, successCallback) => successCallback(eventsRef.current),
+      height: 'auto',
+      fixedWeekCount: false,
+      dayMaxEvents: 3,
+      dateClick: (info) => onDateClickRef.current(info.dateStr),
+      eventClick: (info) => {
+        if (info.event.id.startsWith('appt-'))
+          onApptClickRef.current(info.event.id.replace('appt-', ''));
+      },
+    });
+    cal.render();
+    calInstance.current = cal;
+    return () => cal.destroy();
+  }, []);
+
+  useEffect(() => {
+    if (!calInstance.current) return;
+    eventsRef.current = buildEvents(tasks, appointments);
+    calInstance.current.refetchEvents();
+  }, [tasks, appointments]);
+
+  return (
+    <div className="calendar-page">
+      <div className="forge-calendar" ref={calRef} />
+    </div>
+  );
+}
 
 function formatDuration(minutes) {
   return `${minutes}m`;
@@ -88,6 +250,9 @@ function App() {
   const [calendarEvents, setCalendarEvents] = useState(null);
   const [driveItems, setDriveItems] = useState(null);
   const [loading, setLoading] = useState({ plan: false, gmail: false, calendar: false, drive: false });
+  const [appointments, setAppointments] = useState([]);
+  const [nextApptId, setNextApptId] = useState(100);
+  const [modal, setModal] = useState(null);
 
   // Auth listener
   useEffect(() => {
@@ -95,21 +260,33 @@ function App() {
       setUser(currentUser);
       if (currentUser) {
         const savedTasks = await loadTasks(currentUser.uid);
-        if (savedTasks.length > 0) {
-          setTasks(savedTasks);
-        }
+        if (savedTasks.length > 0) setTasks(savedTasks);
+        const savedAppts = await loadAppointments(currentUser.uid);
+        if (savedAppts.length > 0) setAppointments(savedAppts);
       }
       setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  // Save tasks to Firestore when they change
   useEffect(() => {
-    if (user && tasks.length > 0) {
-      saveTasks(user.uid, tasks);
-    }
+    if (user && tasks.length > 0) saveTasks(user.uid, tasks);
   }, [tasks, user]);
+
+  useEffect(() => {
+    if (user) saveAppointments(user.uid, appointments);
+  }, [appointments, user]);
+
+  const saveAppt = (form) => {
+    if (form.id) {
+      setAppointments(prev => prev.map(a => a.id === form.id ? form : a));
+    } else {
+      setAppointments(prev => [...prev, { ...form, id: nextApptId }]);
+      setNextApptId(n => n + 1);
+    }
+  };
+
+  const deleteAppt = (id) => setAppointments(prev => prev.filter(a => a.id !== id));
 
   const addTask = () => {
     if (!form.name.trim()) return;
@@ -169,9 +346,9 @@ function App() {
   return (
     <div className="app">
       <div className="header">
-        <div className="logo">Plann<span>AI</span></div>
+        <div className="logo">FORGE</div>
         <div className="tabs">
-          {['planner', 'schedule', 'integrations', 'preferences'].map((value) => (
+          {['planner', 'schedule', 'calendar', 'integrations', 'preferences'].map((value) => (
             <button key={value} className={`tab ${tab === value ? 'active' : ''}`} type="button" onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>
           ))}
         </div>
@@ -318,6 +495,35 @@ function App() {
             )}
           </div>
         </div>
+      )}
+
+      {tab === 'calendar' && (
+        <>
+          <div className="calendar-toolbar">
+            <button className="add-btn" style={{ width: 'auto', padding: '0.5rem 1.2rem', marginTop: 0 }} type="button"
+              onClick={() => setModal({ date: new Date().toISOString().split('T')[0] })}>
+              + New Appointment
+            </button>
+          </div>
+          <CalendarView
+            tasks={tasks}
+            appointments={appointments}
+            onDateClick={(dateStr) => setModal({ date: dateStr })}
+            onApptClick={(apptId) => {
+              const appt = appointments.find(a => String(a.id) === apptId);
+              if (appt) setModal({ appointment: appt });
+            }}
+          />
+        </>
+      )}
+
+      {modal && (
+        <AppointmentModal
+          initial={modal.appointment || { date: modal.date }}
+          onSave={saveAppt}
+          onDelete={deleteAppt}
+          onClose={() => setModal(null)}
+        />
       )}
 
       {tab === 'integrations' && (
