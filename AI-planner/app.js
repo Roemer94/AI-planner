@@ -1,5 +1,53 @@
-const { useState } = React;
+const { useState, useEffect } = React;
 const { createRoot } = ReactDOM;
+
+// Firebase Initialization
+firebase.initializeApp(window.firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// Firebase Auth Helpers
+async function signInWithGoogle() {
+  try {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    await auth.signInWithPopup(provider);
+  } catch (error) {
+    console.error('Sign-in failed:', error);
+    alert('Sign-in failed: ' + error.message);
+  }
+}
+
+async function signOut() {
+  try {
+    await auth.signOut();
+  } catch (error) {
+    console.error('Sign-out failed:', error);
+  }
+}
+
+// Firestore Helpers
+async function saveTasks(userId, tasks) {
+  try {
+    await db.collection('tasks').doc(userId).set(
+      { tasks, lastUpdated: new Date() },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error('Error saving tasks:', error);
+  }
+}
+
+async function loadTasks(userId) {
+  try {
+    const doc = await db.collection('tasks').doc(userId).get();
+    if (doc.exists && doc.data().tasks) {
+      return doc.data().tasks;
+    }
+  } catch (error) {
+    console.error('Error loading tasks:', error);
+  }
+  return [];
+}
 
 const DEFAULT_PREFS = { workStart: '09:00', workEnd: '18:00', breakDuration: 15, focusBlocks: true, workStyle: 'balanced', bufferTime: 10, energyPeak: 'morning', timezone: 'Europe/Amsterdam' };
 
@@ -27,6 +75,8 @@ function buildSampleSchedule(tasks, prefs) {
 }
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [tab, setTab] = useState('planner');
   const [tasks, setTasks] = useState(INIT_TASKS);
   const [prefs, setPrefs] = useState(DEFAULT_PREFS);
@@ -38,6 +88,28 @@ function App() {
   const [calendarEvents, setCalendarEvents] = useState(null);
   const [driveItems, setDriveItems] = useState(null);
   const [loading, setLoading] = useState({ plan: false, gmail: false, calendar: false, drive: false });
+
+  // Auth listener
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        const savedTasks = await loadTasks(currentUser.uid);
+        if (savedTasks.length > 0) {
+          setTasks(savedTasks);
+        }
+      }
+      setAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Save tasks to Firestore when they change
+  useEffect(() => {
+    if (user && tasks.length > 0) {
+      saveTasks(user.uid, tasks);
+    }
+  }, [tasks, user]);
 
   const addTask = () => {
     if (!form.name.trim()) return;
@@ -103,10 +175,60 @@ function App() {
             <button key={value} className={`tab ${tab === value ? 'active' : ''}`} type="button" onClick={() => setTab(value)}>{value[0].toUpperCase() + value.slice(1)}</button>
           ))}
         </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: 'auto' }}>
+          {authLoading ? (
+            <span style={{ fontSize: '13px', color: '#6b6b60' }}>Loading...</span>
+          ) : user ? (
+            <>
+              <span style={{ fontSize: '13px', color: '#8a8a7a' }}>
+                {user.email}
+              </span>
+              <button
+                onClick={() => signOut()}
+                style={{
+                  padding: '0.4rem 0.8rem',
+                  background: '#7a3a3a',
+                  color: '#e8e4da',
+                  border: 'none',
+                  borderRadius: '5px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}
+              >
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => signInWithGoogle()}
+              style={{
+                padding: '0.4rem 0.8rem',
+                background: '#6b8c5a',
+                color: '#e8e4da',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: '600'
+              }}
+            >
+              Sign In with Google
+            </button>
+          )}
+        </div>
       </div>
 
       {(tab === 'planner' || tab === 'schedule') && (
         <div className="main">
+          {!user && (
+            <div style={{ gridColumn: '1/-1', background: '#2e1a1a', border: '1px solid #7a3a3a', borderRadius: '8px', padding: '1.5rem', margin: '1.5rem', textAlign: 'center' }}>
+              <div style={{ fontSize: '16px', color: '#e8e4da', marginBottom: '1rem' }}>📝 Sign in to save your tasks</div>
+              <button onClick={() => signInWithGoogle()} style={{ padding: '0.6rem 1.2rem', background: '#6b8c5a', color: '#e8e4da', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}>
+                Sign In with Google
+              </button>
+            </div>
+          )}
           <div className="sidebar">
             <div className="panel">
               <div className="panel-title">Add Task</div>
@@ -134,7 +256,7 @@ function App() {
                   ))}
                 </div>
               </div>
-              <button className="add-btn" type="button" onClick={addTask}>+ Add Task</button>
+              <button className="add-btn" type="button" onClick={addTask} disabled={!user} style={{ opacity: user ? 1 : 0.5, cursor: user ? 'pointer' : 'not-allowed' }}>+ Add Task</button>
             </div>
 
             <div className="panel">

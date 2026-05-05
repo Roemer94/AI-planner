@@ -9,9 +9,30 @@
   <body>
     <div id="root"></div>
 
+    <!-- React & Babel (needed first for JSX) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- Firebase Scripts (must load before app.js) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.2/firebase-firestore.js"></script>
+
+    <!-- Firebase Config -->
+    <script>
+      window.firebaseConfig = {
+        apiKey: "AIzaSyCEPZhS42Isr87Y6oxQiPa-ZWpizT3cNbA",
+        authDomain: "planai-bd1fb.firebaseapp.com",
+        projectId: "planai-bd1fb",
+        storageBucket: "planai-bd1fb.firebasestorage.app",
+        messagingSenderId: "9370985588674",
+        appId: "1:9370985588674:web:3a00395a7e76c5924dc10b",
+        measurementId: "G-RY3QZGWGGE"
+      };
+    </script>
+
+    <!-- App Script -->
     <script type="text/babel" src="app.js"></script>
   </body>
 </html>
