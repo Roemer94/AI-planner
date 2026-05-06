@@ -1,10 +1,11 @@
-# PlannAI
+# Forge
 
 A personal AI-powered daily planner that connects to your Google apps to automatically surface tasks, build an optimized schedule, and push it back to your calendar.
 
 ## Features
 
 - **AI Schedule Generation** — Claude analyzes your pending tasks and personal preferences to generate an optimized daily plan
+- **Voice Assistant** — Speak commands to Claude directly in the browser; Claude responds with a spoken reply using the Web Speech API
 - **Gmail Integration** — Scans your inbox for actionable items and converts them into tasks
 - **Google Calendar** — View upcoming events and export your AI-generated schedule directly to your calendar
 - **Google Drive** — Detects recently modified documents that likely need attention
@@ -26,7 +27,8 @@ A personal AI-powered daily planner that connects to your Google apps to automat
 ## Tech Stack
 
 - React (via Babel CDN — no build step required)
-- Claude API (`claude-sonnet-4-20250514`) for AI scheduling and integration parsing
+- Claude API (`claude-haiku-4-5-20251001`) for voice commands; `claude-sonnet-4-20250514` for AI scheduling
+- Web Speech API (SpeechRecognition + SpeechSynthesis) for voice input/output — requires Chrome or Edge
 - Google MCP servers for Gmail, Calendar, and Drive access
 - Firebase Auth (Google sign-in) + Firestore for cloud task storage
 

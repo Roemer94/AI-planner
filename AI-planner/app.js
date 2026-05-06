@@ -253,6 +253,12 @@ function App() {
   const [appointments, setAppointments] = useState([]);
   const [nextApptId, setNextApptId] = useState(100);
   const [modal, setModal] = useState(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceResponse, setVoiceResponse] = useState('');
+  const [voiceLoading, setVoiceLoading] = useState(false);
+  const [claudeApiKey, setClaudeApiKey] = useState(() => localStorage.getItem('forge_claude_key') || '');
 
   // Auth listener
   useEffect(() => {
@@ -276,6 +282,76 @@ function App() {
   useEffect(() => {
     if (user) saveAppointments(user.uid, appointments);
   }, [appointments, user]);
+
+  useEffect(() => {
+    localStorage.setItem('forge_claude_key', claudeApiKey);
+  }, [claudeApiKey]);
+
+  const speakText = (text) => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.rate = 1.0;
+    window.speechSynthesis.speak(utt);
+  };
+
+  const sendToClaudeVoice = async (transcript) => {
+    if (!claudeApiKey.trim()) {
+      const msg = 'Please add your Claude API key in Preferences to use voice commands.';
+      setVoiceResponse(msg);
+      speakText(msg);
+      return;
+    }
+    setVoiceLoading(true);
+    try {
+      const taskSummary = tasks.length
+        ? tasks.map(t => `- ${t.name} (${t.priority}, due ${t.deadline || 'no deadline'}, ${t.duration}min, ${t.done ? 'done' : 'pending'})`).join('\n')
+        : 'No tasks yet.';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': claudeApiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          system: `You are Forge, a smart daily planner assistant. Current tasks:\n${taskSummary}\nRespond in 1-3 sentences, conversationally and concisely.`,
+          messages: [{ role: 'user', content: transcript }],
+        }),
+      });
+      if (!res.ok) { const err = await res.json(); throw new Error(err.error?.message || 'API error'); }
+      const data = await res.json();
+      const reply = data.content[0].text;
+      setVoiceResponse(reply);
+      speakText(reply);
+    } catch (err) {
+      setVoiceResponse('Error: ' + err.message);
+    }
+    setVoiceLoading(false);
+  };
+
+  const startListening = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setVoiceResponse('Speech recognition not supported. Please use Chrome or Edge.'); return; }
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.interimResults = false;
+    setVoiceListening(true);
+    setVoiceTranscript('');
+    setVoiceResponse('');
+    rec.onresult = (e) => {
+      const t = e.results[0][0].transcript;
+      setVoiceTranscript(t);
+      setVoiceListening(false);
+      sendToClaudeVoice(t);
+    };
+    rec.onerror = () => { setVoiceListening(false); setVoiceResponse('Could not understand. Please try again.'); };
+    rec.onend = () => setVoiceListening(false);
+    rec.start();
+  };
 
   const saveAppt = (form) => {
     if (form.id) {
@@ -353,6 +429,20 @@ function App() {
           ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginLeft: 'auto' }}>
+          <button
+            onClick={() => setVoiceOpen(v => !v)}
+            style={{
+              padding: '0.4rem 0.8rem',
+              background: voiceOpen ? '#3a5a6a' : '#1e2a1e',
+              color: voiceListening ? '#e8a060' : '#c8d4b8',
+              border: `1px solid ${voiceOpen ? '#5a8aaa' : '#3a5a3a'}`,
+              borderRadius: '5px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: '600',
+            }}
+            title="Voice Assistant"
+          >{voiceListening ? '🎙️ Listening…' : '🎙️ Voice'}</button>
           {authLoading ? (
             <span style={{ fontSize: '13px', color: '#6b6b60' }}>Loading...</span>
           ) : user ? (
@@ -582,7 +672,84 @@ function App() {
           </div>
           <div className="pref-section"><div className="pref-section-title">Personal Rhythm</div><div className="form-group"><label className="form-label">Energy peak</label><select className="form-input" value={prefs.energyPeak} onChange={(e) => setPrefs((cur) => ({ ...cur, energyPeak: e.target.value }))}><option value="morning">Morning (9–12)</option><option value="midday">Midday (12–15)</option><option value="afternoon">Afternoon (15–18)</option></select></div><div className="form-group"><label className="form-label">Work style</label><select className="form-input" value={prefs.workStyle} onChange={(e) => setPrefs((cur) => ({ ...cur, workStyle: e.target.value }))}><option value="balanced">Balanced</option><option value="deep-work">Deep work — long focus blocks</option><option value="sprints">Sprints — short intense bursts</option><option value="flexible">Flexible</option></select></div><div className="form-group" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><label className="form-label" style={{ marginBottom: 0 }}>Enable focus blocks (Pomodoro-style)</label><label className="toggle"><input type="checkbox" checked={prefs.focusBlocks} onChange={(e) => setPrefs((cur) => ({ ...cur, focusBlocks: e.target.checked }))} /><span className="toggle-slider"></span></label></div></div>
           <div className="pref-section"><div className="pref-section-title">Location & Time</div><div className="form-group"><label className="form-label">Timezone</label><select className="form-input" value={prefs.timezone} onChange={(e) => setPrefs((cur) => ({ ...cur, timezone: e.target.value }))}>{['Europe/Amsterdam', 'Europe/London', 'America/New_York', 'America/Los_Angeles', 'Asia/Tokyo', 'Asia/Dubai'].map((value) => <option key={value} value={value}>{value}</option>)}</select></div></div>
+          <div className="pref-section">
+            <div className="pref-section-title">AI Voice</div>
+            <div className="form-group">
+              <label className="form-label">Claude API Key</label>
+              <input
+                type="password"
+                className="form-input"
+                value={claudeApiKey}
+                placeholder="sk-ant-…"
+                onChange={(e) => setClaudeApiKey(e.target.value)}
+              />
+              <div style={{ fontSize: '11px', color: '#5a5a4a', marginTop: '4px' }}>
+                Stored in browser localStorage. Required for voice commands. Get a key at console.anthropic.com.
+              </div>
+            </div>
+          </div>
           <button className="add-btn" type="button" onClick={() => setTab('planner')} style={{ maxWidth: 200 }}>Save Preferences</button>
+        </div>
+      )}
+
+      {voiceOpen && (
+        <div style={{
+          position: 'fixed', bottom: '1.5rem', right: '1.5rem',
+          width: '340px', background: '#171812', border: '1px solid #3a5a6a',
+          borderRadius: '12px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+          zIndex: 1000, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}>
+          <div style={{ background: '#1e2318', padding: '0.75rem 1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #2a3a2a' }}>
+            <span style={{ fontSize: '13px', fontWeight: '600', color: '#c8d4b8', letterSpacing: '0.05em' }}>VOICE ASSISTANT</span>
+            <button onClick={() => setVoiceOpen(false)} style={{ background: 'none', border: 'none', color: '#6b7a5a', cursor: 'pointer', fontSize: '18px', lineHeight: 1 }}>×</button>
+          </div>
+          <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', minHeight: '120px' }}>
+            {voiceTranscript && (
+              <div style={{ background: '#1e2a1e', borderRadius: '8px', padding: '0.6rem 0.8rem' }}>
+                <div style={{ fontSize: '10px', color: '#6b8c5a', marginBottom: '4px', fontWeight: 600, letterSpacing: '0.08em' }}>YOU SAID</div>
+                <div style={{ fontSize: '13px', color: '#e8e4da' }}>{voiceTranscript}</div>
+              </div>
+            )}
+            {voiceLoading && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#6b8c5a', fontSize: '13px' }}>
+                <div className="spinner sm"></div>Thinking…
+              </div>
+            )}
+            {voiceResponse && !voiceLoading && (
+              <div style={{ background: '#1a2230', borderRadius: '8px', padding: '0.6rem 0.8rem', borderLeft: '3px solid #3a6a8a' }}>
+                <div style={{ fontSize: '10px', color: '#5a8aaa', marginBottom: '4px', fontWeight: 600, letterSpacing: '0.08em', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>FORGE AI</span>
+                  <button onClick={() => speakText(voiceResponse)} style={{ background: 'none', border: 'none', color: '#5a8aaa', cursor: 'pointer', fontSize: '12px' }}>🔊</button>
+                </div>
+                <div style={{ fontSize: '13px', color: '#c8d4b8', lineHeight: 1.5 }}>{voiceResponse}</div>
+              </div>
+            )}
+            {!voiceTranscript && !voiceLoading && !voiceResponse && (
+              <div style={{ fontSize: '13px', color: '#5a5a4a', textAlign: 'center', paddingTop: '0.5rem' }}>
+                Press the mic and speak a command.<br/>
+                <span style={{ fontSize: '11px' }}>e.g. "What are my tasks?" or "Summarize my day"</span>
+              </div>
+            )}
+          </div>
+          <div style={{ padding: '0.75rem 1rem', borderTop: '1px solid #2a3a2a', display: 'flex', justifyContent: 'center' }}>
+            <button
+              onClick={startListening}
+              disabled={voiceListening || voiceLoading}
+              style={{
+                width: '52px', height: '52px', borderRadius: '50%',
+                background: voiceListening ? '#8a3a2a' : '#3a6a4a',
+                border: `2px solid ${voiceListening ? '#c0412a' : '#5a9a6a'}`,
+                color: '#e8e4da', fontSize: '22px',
+                cursor: voiceListening || voiceLoading ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                opacity: voiceLoading ? 0.5 : 1,
+                boxShadow: voiceListening ? '0 0 16px rgba(192,65,42,0.5)' : 'none',
+                transition: 'all 0.2s',
+              }}
+            >
+              {voiceListening ? '⏹' : '🎙️'}
+            </button>
+          </div>
         </div>
       )}
     </div>
